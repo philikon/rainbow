@@ -91,6 +91,9 @@ typedef struct {
     vorbis_dsp_state vd;
     ogg_stream_state os;
 
+    PRFloat64 startedAt;
+    PRUint32 samplesRead;
+    
     AudioSource *backend;
     nsCOMPtr<nsIAsyncInputStream> aPipeIn;
     nsCOMPtr<nsIAsyncOutputStream> aPipeOut;

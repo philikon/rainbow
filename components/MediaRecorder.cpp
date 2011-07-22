@@ -193,6 +193,7 @@ MediaRecorder::GetAudioPacket(PRInt32 len)
         return NULL;
     }
 
+    aState->samplesRead += len / aState->backend->GetFrameSize();
     PreviewAudio(a_frames, len);
     return a_frames;
 }
@@ -333,8 +334,6 @@ MediaRecorder::Encode()
      * run of the loop? Possible answer: No, because the timing might go
      * awry, we are better off processing timestamps per frame of video.
      */
-    nsresult rv;
-    PRUint32 rd;
     int v_fps = FPS_N / FPS_D;
     int a_frame_num = FRAMES_BUFFER;
     if (v_rec) {
@@ -355,13 +354,14 @@ MediaRecorder::Encode()
     
     if (v_rec && a_rec) {
         /* Check if audio or video started first, and set that as baseline */
-        rv = aState->aPipeIn->Read((char *)&atime, sizeof(PRFloat64), &rd);
-        fprintf(stderr, "Audio stream started at %f\n", atime);
+        atime = aState->startedAt + (aState->samplesRead * v_frame_time_length);
+        fprintf(stderr, "Audio record stream started at %f\n", atime);
+
         if (!(v_frame = GetVideoPacket(&vlen, &vtime))) {
             fprintf(stderr, "GetVideoPacket returned NULL\n");
             goto finish;
         }
-        fprintf(stderr, "Video stream started at %f\n", vtime);
+        fprintf(stderr, "Video record stream started at %f\n", vtime);
         
         while (vtime > atime) {
             /* Fast forward audio to catch up with video */
@@ -435,7 +435,6 @@ video:
             PR_Free(v_frame); v_frame = NULL;
         }
     } else if (a_rec && !v_rec) {
-        rv = aState->aPipeIn->Read((char *)&atime, sizeof(PRFloat64), &rd);
         while (!a_stp) {
             if (!(a_frames = GetAudioPacket(a_frame_total))) {
                 continue;
@@ -751,6 +750,8 @@ void
 MediaRecorder::BeginSessionThread(void *data)
 {   
     nsresult rv;
+    PRUint32 rd;
+    PRFloat64 atime;
     MediaRecorder *mr = static_cast<MediaRecorder*>(data);
     Properties *params = mr->params;
 
@@ -829,6 +830,14 @@ MediaRecorder::BeginSessionThread(void *data)
             ));
             return;
         }
+
+        /* Store timestamp for audio stream */
+        rv = mr->aState->aPipeIn->Read((char *)&atime, sizeof(PRFloat64), &rd);
+        if (rd != sizeof(PRFloat64))
+            fprintf(stderr, "Error fetching audio timestamp");
+        
+        mr->aState->startedAt = atime;
+        fprintf(stderr, "Audio stream started at %f\n", mr->aState->startedAt);
 
         /* Spawn thread to preview audio */
         mr->preview = PR_CreateThread(
