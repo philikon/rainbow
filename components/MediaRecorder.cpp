@@ -133,6 +133,48 @@ MediaRecorder::BeginPreviewAudio(void *data)
     }
 }
 
+static nsresult DispatchAudioAvailableEvent(float* aFrameBuffer,
+    PRUint32 aFrameBufferLength,
+    float aTime,
+    nsIDOMHTMLAudioElement *audio)
+{ 
+  // Auto manage the memory for the frame buffer. If we fail and return
+  // an error, this ensures we free the memory in the frame buffer. Otherwise
+  // we hand off ownership of the frame buffer to the audioavailable event,
+  // which frees the memory when it's destroyed.
+  nsAutoArrayPtr<float> frameBuffer(aFrameBuffer);
+
+  nsCOMPtr<nsINode> theNode(do_QueryInterface(audio));
+  fprintf(stderr, "(0)\n\n");
+  return NS_OK;
+  
+  nsCOMPtr<nsIDOMDocument> domDoc(do_QueryInterface(theNode->GetOwnerDoc()));
+
+
+  nsCOMPtr<nsIContent> audioContent(do_QueryInterface(audio));
+  nsCOMPtr<nsIDOMEventTarget> target(do_QueryInterface(audioContent));
+
+  fprintf(stderr, "(1)");
+  NS_ENSURE_TRUE(domDoc && target, NS_ERROR_INVALID_ARG);
+
+  nsCOMPtr<nsIDOMEvent> event;
+  nsresult rv = domDoc->CreateEvent(NS_LITERAL_STRING("MozAudioAvailableEvent"),
+                                    getter_AddRefs(event));
+  nsCOMPtr<nsIDOMNotifyAudioAvailableEvent> audioavailableEvent(do_QueryInterface(event));
+  fprintf(stderr, "(2)");
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = audioavailableEvent->InitAudioAvailableEvent(NS_LITERAL_STRING("MozAudioAvailable"),
+                                                    PR_TRUE, PR_TRUE, frameBuffer.forget(), aFrameBufferLength,
+                                                    aTime, PR_TRUE);
+  fprintf(stderr, "(3)");
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  PRBool dummy;
+  fprintf(stderr, "OMG GOING TO CALL EVENT\n");
+  return target->DispatchEvent(event, &dummy);
+}
+
 void
 MediaRecorder::PreviewAudio(PRInt16 *a_frames, int len)
 {
@@ -162,7 +204,11 @@ MediaRecorder::PreviewAudio(PRInt16 *a_frames, int len)
     for (i = 0; i < n; i++) {
         data[i] = (float)((float)a_frames[i] / 32768.f);
     }
+
+    fprintf(stderr, "CALLING WRITE AUDIO!\n");
     audio->MozWriteAudio(arrayval, jsctx, &retval);
+
+    DispatchAudioAvailableEvent(data, n, 0.0f, audio);
 }
 
 /*
